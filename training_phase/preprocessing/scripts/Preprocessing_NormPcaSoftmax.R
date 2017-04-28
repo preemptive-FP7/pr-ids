@@ -43,6 +43,9 @@
 # ++++ {export.filename}_softmax.txt
 # ++++ {export.filename}_normalization.txt
 # 
+# 
+# Authors:
+# -- xclotet
 # =============================================
  
 
@@ -76,21 +79,21 @@ data2preprocess <- "file_path_to/DATA_load_data2preprocess.R"
 
 # Export folder path
 export.path1 <- "preprocessed"
-export.path2 <- "CIGRE_MV_noDG_Julio_OLTCAttack_no11train_STORM"
+export.path2 <- "name_of_the_analysis"
 export.path <- file.path(export.path1, export.path2)
-if(!dir.exists(export.path)){
+if (!dir.exists(export.path)) {
   dir.create(export.path)
 }
 
 # Export file name
-export.filename1 <- "AgentC"
+export.filename1 <- "Agent_name"
 export.filename <- file.path(export.path, export.filename1)
 
 
 # Extra functions ---------------------------------------------------------
 
-normalize.fun <- function(x){
-  (x- roll_meanr(x, n = normalize.n, fill = T))/roll_sdr(x, n = normalize.n, fill = T)
+normalize.fun <- function(x) {
+  (x - roll_meanr(x, n = normalize.n, fill = T))/roll_sdr(x, n = normalize.n, fill = T)
 }
 
 
@@ -101,7 +104,7 @@ res <- load.data()
 subs <- res[["subs"]]
 subs.temporal <- res[["subs.temporal"]]
 subs.idx <- res[["subs.idx"]]
-if(test.){
+if (test.) {
   subs.test <- res[["subs.test"]]
   subs.test.idx <- res[["subs.test.idx"]]
 }
@@ -111,7 +114,7 @@ rm(res)
 # Normalization -----------------------------------------------------------
 
 subs <- subs[ , lapply(.SD, normalize.fun)]
-if(test.){
+if (test.) {
   subs.test <- subs.test[ , lapply(.SD, normalize.fun)]
 }
 
@@ -130,14 +133,14 @@ data.train.datetime <- PCA.datetime(subs.temporal[initialization:nrow(subs.tempo
 data.train.results <- PCA.train.results(data.train.pca, datetime = data.train.datetime)
 # 
 # save pca results (optional)
-if(F){
+if (F) {
   filename.save <- paste0(export.filename, "_PCA_train_results.RData")
   save(data.train.results, data.train.datetime, data.train.pca, file= filename.save)
 }
 # 
 # PCA test
 # 
-if(test.){
+if (test.) {
   data.test.2pca <- subs.test
   initialization.test <- normalize.n
   data.test.2pca <- data.test.2pca[initialization.test:nrow(data.test.2pca),]
@@ -148,7 +151,7 @@ if(test.){
   # 
   # save pca results (optional)
   # 
-  if(F){
+  if (F) {
     filename.test.save <- paste0(export.filename, "_PCA_test_results.RData")
     save(data.test.results, data.test.datetime, file= filename.test.save)
   }
@@ -173,7 +176,7 @@ saveRDS(data.train.datetime.export,
 # 
 # Test 
 # 
-if(test.){
+if (test.) {
   data.export <- copy(data.table(data.test.results))
   data.test.export <- data.test.datetime
   export2svdet(data.export, dimension = pca.dimension, id. = T, test.data. = T,
@@ -184,7 +187,7 @@ if(test.){
   # Check
   # 
   labels.  <-  rep("NORMAL", dim(data.export)[1])
-  if(F){
+  if (F) {
     # Set datetime range with abnormal beahviour was observed (Optional)
     labels.[data.test.export > ymd_hms("2015-07-11 06:01:55") &
             data.test.export < ymd_hms("2015-07-11 10:02:00") ] <- rep("ABNORMAL")
