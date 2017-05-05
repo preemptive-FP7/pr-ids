@@ -66,7 +66,6 @@ source("functions/date_time_func.R")
 source("functions/PCA_func.R")
 
 
-
 # Parameters --------------------------------------------------------------
 
 data2load <- c("")
@@ -75,7 +74,8 @@ normalize.n <- 20
 pca.dimension.max <- 3
 
 # File path to the *_load_data2preprocess.R where * depends on the data used.
-data2preprocess <- "file_path_to/DATA_load_data2preprocess.R"
+# data2preprocess <- "file_path_to/DATA_load_data2preprocess.R"
+data2preprocess <- "scripts/Preprocessing_NormPcaSoftmax.R"
 
 # Export folder path
 export.path1 <- "preprocessed"
@@ -92,10 +92,22 @@ export.filename <- file.path(export.path, export.filename1)
 
 # Extra functions ---------------------------------------------------------
 
-normalize.fun <- function(x) {
-  (x - roll_meanr(x, n = normalize.n, fill = T))/roll_sdr(x, n = normalize.n, fill = T)
+# Approach A
+# normalize.fun <- function(x) {
+#   (x - roll_meanr(x, n = normalize.n, fill = T))/roll_sdr(x, n = normalize.n, fill = T)
+# }
+
+# Approach B
+normalize.getQuantile <- function(x) {
+  quantiles <- quantile(x, c(0.05, 0.95))
+  return(quantiles)
 }
 
+normalize.fun <- function(x, quantiles){
+  resc <- as.numeric((quantiles[2] - quantiles[1])/2)
+  xx <- (x - as.numeric(resc + quantiles[1]))/resc
+  return(xx)
+}
 
 # Load data ---------------------------------------------------------------
 
@@ -113,12 +125,22 @@ rm(res)
 
 # Normalization -----------------------------------------------------------
 
-subs <- subs[ , lapply(.SD, normalize.fun)]
-if (test.) {
-  subs.test <- subs.test[ , lapply(.SD, normalize.fun)]
-}
+# Approach A --
+# subs <- subs[ , lapply(.SD, normalize.fun)]
+# if (test.) {
+#   subs.test <- subs.test[ , lapply(.SD, normalize.fun)]
+# }
 
+# Approach B --
+# Quantiles obtained from training only 
+# TODO: they have to be stored for using them on STORM
+quantiles <- subs[ , lapply(.SD, normalize.getQuantile)]
 
+subs.n <- copy(subs)
+cols <- names(subs.n)
+for (j in cols) set(subs.n, 
+                    j = j,
+                    value = normalize.fun(subs.n[[j]], quantiles[, .SD, .SDcols = j]))
 
 # PCA ---------------------------------------------------------------------
 # 
@@ -135,7 +157,7 @@ data.train.results <- PCA.train.results(data.train.pca, datetime = data.train.da
 # save pca results (optional)
 if (F) {
   filename.save <- paste0(export.filename, "_PCA_train_results.RData")
-  save(data.train.results, data.train.datetime, data.train.pca, file= filename.save)
+  save(data.train.results, data.train.datetime, data.train.pca, file = filename.save)
 }
 # 
 # PCA test
@@ -153,7 +175,7 @@ if (test.) {
   # 
   if (F) {
     filename.test.save <- paste0(export.filename, "_PCA_test_results.RData")
-    save(data.test.results, data.test.datetime, file= filename.test.save)
+    save(data.test.results, data.test.datetime, file = filename.test.save)
   }
 }
 
@@ -164,11 +186,26 @@ if (test.) {
 pca.dimension.calc <- length(grep("PC", names(data.train.results)))
 pca.dimension <- ifelse(pca.dimension.max >= pca.dimension.calc, 
                         pca.dimension.calc,  pca.dimension.max)
+
+# If export normal results as test
+test.normal. <- T
+
+
 # 
 # Train 
 # 
-data.export <- copy(data.train.results)
-data.train.datetime.export <- data.train.datetime
+if (!test.normal.) {
+  data.export <- copy(data.train.results)
+  data.train.datetime.export <- data.train.datetime
+} else {
+  train.num <- dim(data.train.results)[1]
+  idx.train <- sample(1:train.num, round(train.num*0.75))
+  data.export <- data.train.results[idx.train]
+  data.train.datetime.export <- data.train.datetime[idx.train]
+}
+# data.export <- data.export[day != 11,]
+# data.train.datetime.export <- data.train.datetime[data.train.datetime < ymd("2015/07/11") | 
+# data.train.datetime > ymd("2015/07/12")]
 export2svdet(data.export, dimension = pca.dimension, id. = T, test.data. = F, 
              filename = export.filename, id.name = "date")                                                   
 saveRDS(data.train.datetime.export, 
@@ -177,50 +214,66 @@ saveRDS(data.train.datetime.export,
 # Test 
 # 
 if (test.) {
-  data.export <- copy(data.table(data.test.results))
-  data.test.export <- data.test.datetime
-  export2svdet(data.export, dimension = pca.dimension, id. = T, test.data. = T,
+  data.test.export <- copy(data.table(data.test.results))
+  # data.export <- data.export[day == 11,]
+  data.train.datetime.export <- data.train.datetime
+  # data.test.export <- data.test.datetime[data.test.datetime > ymd("2015/07/11") & 
+  #                                          data.test.datetime < ymd("2015/07/12")]
+  export2svdet(data.test.export, dimension = pca.dimension, id. = T, test.data. = T,
                filename = export.filename, id.name = "date")
   saveRDS(data.test.export, 
           file = paste0(export.filename, "_test_datetime.rds"))
   # 
   # Check
   # 
-  labels.  <-  rep("NORMAL", dim(data.export)[1])
-  if (F) {
-    # Set datetime range with abnormal beahviour was observed (Optional)
-    labels.[data.test.export > ymd_hms("2015-07-11 06:01:55") &
-            data.test.export < ymd_hms("2015-07-11 10:02:00") ] <- rep("ABNORMAL")
-  }
-  
-  export2svdet(data.export, dimension = pca.dimension, id. = T, test.data. = T,
-               filename = export.filename, id.name = "date",test.labelled. = T, test.labels = labels.)
+  data.testcheck.export <- copy(data.table(data.test.results))
+  # data.export <- data.export[day == 11,]
+  data.train.datetime.export <- data.train.datetime
+  # data.test.export <- data.test.datetime[data.test.datetime > ymd("2015/07/11") & 
+  #                                          data.test.datetime < ymd("2015/07/12")]
+  # labels.  <-  rep("ABNORMAL", dim(data.export)[1])
+  labels.  <-  ifelse(testcheck.labels == "Normal", "NORMAL", "ABNORMAL")
+  # labels.[data.test.export > ymd_hms("2015-07-11 06:01:55") &
+  #           data.test.export < ymd_hms("2015-07-11 10:02:00") ] <- rep("ABNORMAL")
+  #           
+  # TEST function:
+  export2svdet(data.testcheck.export, dimension = pca.dimension, id. = T, test.data. = T,
+               filename = export.filename, id.name = "date",
+               test.labelled. = T, test.labels = labels.)
   saveRDS(data.test.export, 
+          file = paste0(export.filename, "_testcheck_datetime.rds"))
+}
+if (test.normal.) {
+  data.testcheck.export <- data.train.results[-idx.train]
+  data.train.datetime.export <- data.train.datetime[-idx.train]
+  labels. <- rep("NORMAL", dim(data.export)[1])
+  export2svdet(data.testcheck.export, dimension = pca.dimension, id. = T, test.data. = T,
+               filename = export.filename, id.name = "date")
+  export2svdet(data.testcheck.export, dimension = pca.dimension, id. = T, test.data. = T,
+               filename = export.filename, id.name = "date",
+               test.labelled. = T, test.labels = labels.)
+  saveRDS(data.testcheck.export, 
           file = paste0(export.filename, "_testcheck_datetime.rds"))
 }
 
 
 
-# Export normalization ----------------------------------------------------
+# <<<<< Export config 2 STORM ---------------------------------------------
 
-filename.STORM <- paste0(export.filename, "_normalization.txt")
-export2STORM.idx(data = normalize.n, filename = filename.STORM)
 
-# Export idx --------------------------------------------------------------
+export.config.path <- file.path(export.path, paste0("config_", export.filename1))
+if (!dir.exists(export.config.path)) {
+  dir.create(export.config.path)
+}
 
-filename.STORM <- paste0(export.filename, "_idx.txt")
-export2STORM.idx(data = subs.idx, filename = filename.STORM)
-
-# Export Dimensional Reduction --------------------------------------------
-
+filename.STORM <- file.path(export.config.path, export.filename1)
 data.export.dimRed <- data.train.pca$rotation
-filename.STORM <- paste0(export.filename, "_dimRed.txt")
-export2STORM.dimReduction(data = data.export.dimRed, filename = filename.STORM)
-
-# Export softmax ----------------------------------------------------------
-
 filename.SMprops <- paste0(export.filename, "_SM.props.rds")  
 data.export.SMprops <- readRDS(file = filename.SMprops)
-data.export.SMprops[, name:=NULL]
-filename.STORM <- paste0(export.filename, "_softmax.txt")
-export2STORM.softmax(data = data.export.SMprops, filename = filename.STORM)
+data.export.SMprops[, name := NULL]
+export2STORM.allConfig(filename = filename.STORM,
+                       idx = subs.idx,
+                       quantiles = quantiles,
+                       softmax = data.export.SMprops, 
+                       dimred = data.export.dimRed)
+export.rawdata(filename.STORM, data2export = "test")
